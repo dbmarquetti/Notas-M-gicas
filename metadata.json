@@ -1,0 +1,7 @@
+{
+  "name": "Notas Mágicas",
+  "description": "Grave e transcreva suas reuniões, gerando automaticamente notas, pontos-chave e ações com o poder da IA. Suporta gravação ao vivo ou upload de áudio pré-gravado.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}

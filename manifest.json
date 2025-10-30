@@ -1,0 +1,23 @@
+{
+  "name": "Notas Mágicas",
+  "short_name": "Notas Mágicas",
+  "description": "Grave e transcreva suas reuniões, gerando automaticamente notas, pontos-chave e ações com o poder da IA. Suporta gravação ao vivo ou upload de áudio pré-gravado.",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#f1f5f9",
+  "theme_color": "#4f46e5",
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ]
+}

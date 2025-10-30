@@ -1,0 +1,8 @@
+{
+  "appId": "com.notas.magicas",
+  "appName": "Notas Mágicas",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  }
+}
