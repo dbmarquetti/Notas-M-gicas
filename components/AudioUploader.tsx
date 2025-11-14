@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 // FIX: Per coding guidelines, the app must assume the API key is present.
 // `hasApiKey` is no longer available, and UI checks for it have been removed.
-import { analyzeAudioAndTranscript } from '../services/geminiService';
+import { analyzeAudioAndTranscript, uploadFileToGemini, deleteGeminiFile } from '../services/geminiService';
 import type { FullAnalysis, TranscriptEntry, HistoryItem } from '../types';
 import MeetingNotes from './MeetingNotes';
 import { UploadIcon, DownloadIcon, MarkdownIcon, FileAudioIcon } from './icons';
@@ -9,6 +9,11 @@ import { useLocalStorage } from '../hooks/useLocalStorage';
 import HistoryList from './HistoryList';
 import ProcessingIndicator from './ProcessingIndicator';
 import ToggleSwitch from './ToggleSwitch';
+
+// Define the maximum file size allowed in megabytes to prevent browser memory issues.
+const MAX_FILE_SIZE_MB = 500;
+const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+
 
 const AudioUploader: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
@@ -39,8 +44,20 @@ const AudioUploader: React.FC = () => {
     }
   };
 
-  const processFile = (file: File) => {
+  const processFile = async (file: File) => {
     // FIX: Removed API key check to align with guidelines. The app should proceed as if the key is always valid.
+
+    // Validate file size to prevent browser memory issues with large files.
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+        setError(`O arquivo é muito grande (${(file.size / 1024 / 1024).toFixed(1)}MB). O tamanho máximo permitido é ${MAX_FILE_SIZE_MB}MB.`);
+        setFileName(null);
+        // Also clear the input value so the user can select a different file
+        const fileInput = document.getElementById('audio-upload') as HTMLInputElement;
+        if (fileInput) {
+          fileInput.value = '';
+        }
+        return;
+    }
 
     if (!file.type.startsWith('audio/')) {
       setError('Por favor, selecione um arquivo de áudio válido.');
@@ -58,45 +75,39 @@ const AudioUploader: React.FC = () => {
     setIsProcessing(true);
     setAnalysisResult(null);
 
-    const reader = new FileReader();
-    reader.onloadend = async () => {
-      try {
-        const dataUrl = reader.result as string;
-        const base64Data = dataUrl.split(',')[1];
-        
-        if (!base64Data) {
-            throw new Error("Não foi possível ler o arquivo de áudio.");
-        }
+    let uploadedFileName: string | null = null;
+    try {
+      // Step 1: Upload the file directly to the Gemini API
+      const uploadedFile = await uploadFileToGemini(file);
+      uploadedFileName = uploadedFile.name; // Store for cleanup
 
-        const result = await analyzeAudioAndTranscript({
-          mimeType: file.type,
-          data: base64Data,
-        }, isDeepAnalysis);
-        
-        setAnalysisResult(result);
-        const newHistoryItem: HistoryItem = {
-          id: Date.now(),
-          title: file.name,
-          date: new Date().toISOString(),
-          analysis: result,
-          source: 'upload',
-        };
-        setHistory(prev => [newHistoryItem, ...prev]);
+      // Step 2: Analyze the audio using the uploaded file's URI
+      const result = await analyzeAudioAndTranscript({
+        mimeType: uploadedFile.mimeType,
+        uri: uploadedFile.uri,
+      }, isDeepAnalysis);
+      
+      setAnalysisResult(result);
+      const newHistoryItem: HistoryItem = {
+        id: Date.now(),
+        title: file.name,
+        date: new Date().toISOString(),
+        analysis: result,
+        source: 'upload',
+      };
+      setHistory(prev => [newHistoryItem, ...prev]);
 
-      } catch (e: any) {
-        console.error("Error processing audio file:", e);
-        setError(e.message || 'Ocorreu um erro ao processar o arquivo. Tente novamente.');
-        setAnalysisResult(null);
-      } finally {
-        setIsProcessing(false);
+    } catch (e: any) {
+      console.error("Error processing audio file:", e);
+      setError(e.message || 'Ocorreu um erro ao processar o arquivo. Tente novamente.');
+      setAnalysisResult(null);
+    } finally {
+      setIsProcessing(false);
+      // Step 3: Clean up the uploaded file in the background
+      if (uploadedFileName) {
+        deleteGeminiFile(uploadedFileName);
       }
-    };
-    reader.onerror = () => {
-        console.error("FileReader error", reader.error);
-        setError("Não foi possível ler o arquivo. Tente novamente.");
-        setIsProcessing(false);
-    };
-    reader.readAsDataURL(file);
+    }
   }
   
   const handleReset = () => {
@@ -137,10 +148,10 @@ Data: ${new Date().toLocaleDateString('pt-BR')}
 --- RESUMO ---
 
 **Pontos Chave:**
-${analysisResult.summary.key_points.map(p => `- ${p}`).join('\n')}
+${analysisResult.summary.key_points.map(p => `- [${p.timestamp}] ${p.point}`).join('\n')}
 
 **Ações e Responsáveis:**
-${analysisResult.summary.action_items.map(i => `- ${i.action} (Responsável: ${i.responsible})`).join('\n')}
+${analysisResult.summary.action_items.map(i => `- [${i.timestamp}] ${i.action} (Responsável: ${i.responsible})`).join('\n')}
 
 --- TRANSCRIÇÃO COMPLETA ---
 
@@ -172,10 +183,10 @@ ${groupedTranscript.map(entry => `[${entry.timestamp}] ${entry.speaker}:\n${entr
 ## Resumo
 
 ### Pontos Chave:
-${analysisResult.summary.key_points.map(p => `- ${p}`).join('\n')}
+${analysisResult.summary.key_points.map(p => `- [${p.timestamp}] ${p.point}`).join('\n')}
 
 ### Ações e Responsáveis:
-${analysisResult.summary.action_items.map(i => `- **${i.action}** (Responsável: ${i.responsible})`).join('\n')}
+${analysisResult.summary.action_items.map(i => `- [${i.timestamp}] **${i.action}** (Responsável: ${i.responsible})`).join('\n')}
 
 ---
 
@@ -308,7 +319,7 @@ ${groupedTranscript.map(entry => `**[${entry.timestamp}] ${entry.speaker}:**\n> 
                         <UploadIcon className="w-10 h-10 mb-4 text-slate-400 dark:text-slate-500" />
                         
                         <p className="mb-2 text-slate-600 dark:text-slate-400"><span className="font-semibold text-indigo-600 dark:text-indigo-400">Clique para enviar</span> ou arraste e solte</p>
-                        <p className="text-xs text-slate-500 dark:text-slate-500">Qualquer formato de áudio (MP3, WAV, M4A, etc.)</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-500">Formatos de áudio suportados (MP3, WAV, etc.) &bull; Tamanho máx: {MAX_FILE_SIZE_MB}MB</p>
                         
                     </div>
                     

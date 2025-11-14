@@ -1,11 +1,17 @@
 
+export interface KeyPoint {
+  point: string;
+  timestamp: string;
+}
+
 export interface ActionItem {
   action: string;
   responsible: string;
+  timestamp: string;
 }
 
 export interface MeetingSummary {
-  key_points: string[];
+  key_points: KeyPoint[];
   action_items: ActionItem[];
 }
 

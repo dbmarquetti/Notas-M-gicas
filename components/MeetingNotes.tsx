@@ -49,9 +49,14 @@ const MeetingNotes: React.FC<MeetingNotesProps> = ({ analysis }) => {
         <div className="grid md:grid-cols-2 gap-x-8 gap-y-6">
           <div>
             <h3 className="text-lg font-semibold text-slate-800 dark:text-gray-200 mb-3 border-b border-slate-200 dark:border-slate-600 pb-2">Pontos Chave</h3>
-            <ul className="list-disc list-inside space-y-2 text-slate-600 dark:text-gray-300">
+            <ul className="list-disc list-inside space-y-3 text-slate-600 dark:text-gray-300">
               {summary.key_points.map((point, index) => (
-                <li key={index} className="leading-relaxed">{point}</li>
+                <li key={index} className="leading-relaxed">
+                  {point.point}
+                  <span className="ml-2 text-xs font-mono bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-300 px-2 py-0.5 rounded-full align-middle">
+                    {point.timestamp}
+                  </span>
+                </li>
               ))}
             </ul>
           </div>
@@ -60,8 +65,13 @@ const MeetingNotes: React.FC<MeetingNotesProps> = ({ analysis }) => {
             <ul className="space-y-4 text-slate-600 dark:text-gray-300">
               {summary.action_items.map((item, index) => (
                 <li key={index} className="flex flex-col">
-                  <span className="font-semibold text-slate-700 dark:text-gray-100">{item.action}</span>
-                  <span className="text-sm text-indigo-500 dark:text-indigo-300">Responsável: {item.responsible}</span>
+                  <div className="flex justify-between items-start gap-2">
+                    <span className="font-semibold text-slate-700 dark:text-gray-100 flex-grow">{item.action}</span>
+                    <span className="text-xs font-mono bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-300 px-2 py-0.5 rounded-full flex-shrink-0">
+                        {item.timestamp}
+                    </span>
+                  </div>
+                  <span className="text-sm text-indigo-500 dark:text-indigo-300 mt-1">Responsável: {item.responsible}</span>
                 </li>
               ))}
             </ul>

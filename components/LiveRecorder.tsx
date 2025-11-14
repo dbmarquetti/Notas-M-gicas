@@ -3,7 +3,7 @@ import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 // FIX: Per coding guidelines, the app must assume the API key is present.
 // `hasApiKey` is no longer available, and UI checks for it have been removed.
 import { analyzeAudioAndTranscript } from '../services/geminiService';
-import type { FullAnalysis, TranscriptEntry, HistoryItem } from '../types';
+import type { FullAnalysis, TranscriptEntry, HistoryItem, KeyPoint, ActionItem } from '../types';
 import MeetingNotes from './MeetingNotes';
 import { MicrophoneIcon, StopIcon, DownloadIcon, MarkdownIcon, FileAudioIcon, SettingsIcon } from './icons';
 import { useLocalStorage } from '../hooks/useLocalStorage';
@@ -191,10 +191,10 @@ Data: ${new Date().toLocaleString('pt-BR')}
 --- RESUMO ---
 
 **Pontos Chave:**
-${analysisResult.summary.key_points.map(p => `- ${p}`).join('\n')}
+${analysisResult.summary.key_points.map(p => `- [${p.timestamp}] ${p.point}`).join('\n')}
 
 **Ações e Responsáveis:**
-${analysisResult.summary.action_items.map(i => `- ${i.action} (Responsável: ${i.responsible})`).join('\n')}
+${analysisResult.summary.action_items.map(i => `- [${i.timestamp}] ${i.action} (Responsável: ${i.responsible})`).join('\n')}
 
 --- TRANSCRIÇÃO COMPLETA ---
 
@@ -226,10 +226,10 @@ ${groupedTranscript.map(entry => `[${entry.timestamp}] ${entry.speaker}:\n${entr
 ## Resumo
 
 ### Pontos Chave:
-${analysisResult.summary.key_points.map(p => `- ${p}`).join('\n')}
+${analysisResult.summary.key_points.map(p => `- [${p.timestamp}] ${p.point}`).join('\n')}
 
 ### Ações e Responsáveis:
-${analysisResult.summary.action_items.map(i => `- **${i.action}** (Responsável: ${i.responsible})`).join('\n')}
+${analysisResult.summary.action_items.map(i => `- [${i.timestamp}] **${i.action}** (Responsável: ${i.responsible})`).join('\n')}
 
 ---
 
