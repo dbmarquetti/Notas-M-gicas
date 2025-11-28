@@ -1,17 +1,18 @@
+
 import React, { useState, useEffect } from 'react';
 // FIX: Per coding guidelines, the app must assume the API key is present.
 // `hasApiKey` is no longer available, and UI checks for it have been removed.
 import { analyzeAudioAndTranscript, uploadFileToGemini, deleteGeminiFile } from '../services/geminiService';
 import type { FullAnalysis, TranscriptEntry, HistoryItem } from '../types';
 import MeetingNotes from './MeetingNotes';
-import { UploadIcon, DownloadIcon, MarkdownIcon, FileAudioIcon } from './icons';
+import { UploadIcon, DownloadIcon, MarkdownIcon, FileAudioIcon, FileVideoIcon } from './icons';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import HistoryList from './HistoryList';
 import ProcessingIndicator from './ProcessingIndicator';
 import ToggleSwitch from './ToggleSwitch';
 
 // Define the maximum file size allowed in megabytes to prevent browser memory issues.
-const MAX_FILE_SIZE_MB = 500;
+const MAX_FILE_SIZE_MB = 1000; // Increased to 1GB for video support
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
 
@@ -19,10 +20,11 @@ const AudioUploader: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<FullAnalysis | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
+  const [fileType, setFileType] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [history, setHistory] = useLocalStorage<HistoryItem[]>('analysisHistory', []);
-  const [audioURL, setAudioURL] = useState<string | null>(null);
+  const [mediaURL, setMediaURL] = useState<string | null>(null);
   const [isDeepAnalysis, setIsDeepAnalysis] = useState(false);
   // FIX: Removed state for API key availability, as guidelines require us to assume it's always present.
 
@@ -31,11 +33,11 @@ const AudioUploader: React.FC = () => {
   useEffect(() => {
     // Cleanup function to revoke object URL and prevent memory leaks
     return () => {
-      if (audioURL) {
-        URL.revokeObjectURL(audioURL);
+      if (mediaURL) {
+        URL.revokeObjectURL(mediaURL);
       }
     };
-  }, [audioURL]);
+  }, [mediaURL]);
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -51,6 +53,7 @@ const AudioUploader: React.FC = () => {
     if (file.size > MAX_FILE_SIZE_BYTES) {
         setError(`O arquivo é muito grande (${(file.size / 1024 / 1024).toFixed(1)}MB). O tamanho máximo permitido é ${MAX_FILE_SIZE_MB}MB.`);
         setFileName(null);
+        setFileType(null);
         // Also clear the input value so the user can select a different file
         const fileInput = document.getElementById('audio-upload') as HTMLInputElement;
         if (fileInput) {
@@ -59,19 +62,21 @@ const AudioUploader: React.FC = () => {
         return;
     }
 
-    if (!file.type.startsWith('audio/')) {
-      setError('Por favor, selecione um arquivo de áudio válido.');
+    if (!file.type.startsWith('audio/') && !file.type.startsWith('video/') && !file.name.endsWith('.mkv')) {
+      setError('Por favor, selecione um arquivo de áudio ou vídeo válido.');
       setFileName(null);
+      setFileType(null);
       return;
     }
 
-    if (audioURL) {
-        URL.revokeObjectURL(audioURL);
+    if (mediaURL) {
+        URL.revokeObjectURL(mediaURL);
     }
-    setAudioURL(URL.createObjectURL(file));
+    setMediaURL(URL.createObjectURL(file));
 
     setError(null);
     setFileName(file.name);
+    setFileType(file.type);
     setIsProcessing(true);
     setAnalysisResult(null);
 
@@ -81,7 +86,7 @@ const AudioUploader: React.FC = () => {
       const uploadedFile = await uploadFileToGemini(file);
       uploadedFileName = uploadedFile.name; // Store for cleanup
 
-      // Step 2: Analyze the audio using the uploaded file's URI
+      // Step 2: Analyze the media using the uploaded file's URI
       const result = await analyzeAudioAndTranscript({
         mimeType: uploadedFile.mimeType,
         uri: uploadedFile.uri,
@@ -98,7 +103,7 @@ const AudioUploader: React.FC = () => {
       setHistory(prev => [newHistoryItem, ...prev]);
 
     } catch (e: any) {
-      console.error("Error processing audio file:", e);
+      console.error("Error processing file:", e);
       setError(e.message || 'Ocorreu um erro ao processar o arquivo. Tente novamente.');
       setAnalysisResult(null);
     } finally {
@@ -113,8 +118,9 @@ const AudioUploader: React.FC = () => {
   const handleReset = () => {
     setAnalysisResult(null);
     setFileName(null);
+    setFileType(null);
     setError(null);
-    setAudioURL(null);
+    setMediaURL(null);
     const fileInput = document.getElementById('audio-upload') as HTMLInputElement;
     if (fileInput) {
       fileInput.value = '';
@@ -226,8 +232,9 @@ ${groupedTranscript.map(entry => `**[${entry.timestamp}] ${entry.speaker}:**\n> 
     if (item) {
       setAnalysisResult(item.analysis);
       setFileName(item.title);
+      setFileType(null); // Type unknown from history
       setError(null);
-      setAudioURL(null); // Original audio file not available from history
+      setMediaURL(null); // Original file not available from history
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
@@ -237,11 +244,14 @@ ${groupedTranscript.map(entry => `**[${entry.timestamp}] ${entry.speaker}:**\n> 
     handleReset();
   };
 
+  const isVideo = fileType?.startsWith('video/') || fileName?.endsWith('.mkv');
+
   const renderMainContent = () => {
     if(isProcessing){
         const processingMessages = [
           `Analisando "${fileName}"...`,
-          "Transcrevendo o áudio, aguarde um momento...",
+          "Enviando para a IA (isso pode levar alguns minutos para vídeos)...",
+          "Transcrevendo o conteúdo...",
           "Extraindo os insights mais importantes...",
           "Compilando o resumo e a transcrição...",
           "O resultado estará pronto em breve!"
@@ -259,14 +269,14 @@ ${groupedTranscript.map(entry => `**[${entry.timestamp}] ${entry.speaker}:**\n> 
                 <div className="flex flex-wrap justify-between items-center mb-4 gap-4">
                     <h2 className="text-xl font-semibold text-slate-800 dark:text-gray-200">Resultados para <span className="font-bold text-indigo-600 dark:text-indigo-400">{fileName}</span></h2>
                     <div className="flex items-center gap-2 flex-wrap">
-                        {audioURL && fileName && (
+                        {mediaURL && fileName && (
                           <a
-                            href={audioURL}
+                            href={mediaURL}
                             download={fileName}
                             className="flex items-center gap-2 text-sm bg-green-600 hover:bg-green-700 text-white font-medium px-4 py-2 rounded-lg transition-colors shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-green-500 dark:focus-visible:ring-offset-slate-900"
                           >
-                            <FileAudioIcon className="w-4 h-4" />
-                            Salvar Áudio
+                            {isVideo ? <FileVideoIcon className="w-4 h-4" /> : <FileAudioIcon className="w-4 h-4" />}
+                            Salvar Mídia
                           </a>
                         )}
                         <button 
@@ -319,11 +329,14 @@ ${groupedTranscript.map(entry => `**[${entry.timestamp}] ${entry.speaker}:**\n> 
                         <UploadIcon className="w-10 h-10 mb-4 text-slate-400 dark:text-slate-500" />
                         
                         <p className="mb-2 text-slate-600 dark:text-slate-400"><span className="font-semibold text-indigo-600 dark:text-indigo-400">Clique para enviar</span> ou arraste e solte</p>
-                        <p className="text-xs text-slate-500 dark:text-slate-500">Formatos de áudio suportados (MP3, WAV, etc.) &bull; Tamanho máx: {MAX_FILE_SIZE_MB}MB</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-500">
+                            Áudio (MP3, WAV) e Vídeo (MP4, MKV, MOV, WebM)<br/>
+                            Tamanho máx: {MAX_FILE_SIZE_MB}MB
+                        </p>
                         
                     </div>
                     
-                    <input id="audio-upload" type="file" className="hidden" accept="audio/*" onChange={handleFileChange} />
+                    <input id="audio-upload" type="file" className="hidden" accept="audio/*,video/*,.mkv,.mp4,.mov,.webm,.mpeg,.mpg,.avi" onChange={handleFileChange} />
                 </label>
                 {error && <p className="mt-4 text-center text-red-500 dark:text-red-400">{error}</p>}
             </div>

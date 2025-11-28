@@ -79,7 +79,7 @@ const App: React.FC = () => {
                 view === 'upload' ? 'bg-white dark:bg-indigo-600 text-indigo-600 dark:text-white shadow-md' : 'text-slate-600 dark:text-gray-400 hover:bg-slate-300/50 dark:hover:bg-slate-700/50'
               }`}
             >
-              Enviar Arquivo de Áudio
+              Enviar Arquivo
             </button>
           </div>
           

@@ -9,6 +9,41 @@ import type { FullAnalysis } from '../types';
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY, requestOptions: {} });
 
 /**
+ * Polls the Gemini API until the file is in the ACTIVE state.
+ * This is crucial for video files which require processing time on the server.
+ */
+const waitForFileActive = async (file: GeminiFile): Promise<GeminiFile> => {
+    let currentFile = file;
+    const maxRetries = 120; // Wait up to 4 minutes (2s interval)
+    let retries = 0;
+
+    console.log(`Aguardando processamento do arquivo: ${file.name} (Estado inicial: ${file.state})`);
+
+    // If already active, return immediately
+    if (currentFile.state === "ACTIVE") {
+        return currentFile;
+    }
+
+    while (currentFile.state === 'PROCESSING' && retries < maxRetries) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        try {
+            currentFile = await ai.files.get({ name: file.name });
+            console.log(`Verificando estado do arquivo ${file.name}: ${currentFile.state}`);
+        } catch (e) {
+            console.warn("Erro temporário ao verificar estado do arquivo, tentando novamente...", e);
+        }
+        retries++;
+    }
+
+    if (currentFile.state !== 'ACTIVE') {
+        throw new Error(`O arquivo não pôde ser processado a tempo. Estado final: ${currentFile.state}`);
+    }
+
+    console.log(`Arquivo processado e pronto para uso: ${currentFile.name}`);
+    return currentFile;
+};
+
+/**
  * Uploads a file to the Gemini API for later processing.
  * This is used for large files to avoid loading them into memory.
  * @param file The file to upload.
@@ -20,17 +55,19 @@ export const uploadFileToGemini = async (file: File): Promise<GeminiFile> => {
     }
     try {
       console.log(`Iniciando upload do arquivo: ${file.name}`);
-      // FIX: The `ai.files.upload` method returns the file metadata object directly.
-      // The previous code incorrectly tried to access a nested `.file` property which caused the error.
       const uploadedFile = await ai.files.upload({
         file: file,
         displayName: file.name,
       });
       console.log(`Arquivo enviado ${uploadedFile.displayName} como: ${uploadedFile.name}`);
-      return uploadedFile;
+      
+      // Wait for the file to be processed and become ACTIVE
+      const activeFile = await waitForFileActive(uploadedFile);
+      
+      return activeFile;
     } catch (e: any) {
       console.error("Error uploading file to Gemini:", e);
-      throw new Error("Falha ao enviar o arquivo para a IA. Verifique sua conexão e tente novamente.");
+      throw new Error(`Falha ao enviar o arquivo para a IA. ${e.message || "Erro desconhecido."}`);
     }
 };
 
@@ -41,8 +78,8 @@ export const uploadFileToGemini = async (file: File): Promise<GeminiFile> => {
  */
 export const deleteGeminiFile = async (fileName: string): Promise<void> => {
     try {
-        // FIX: Corrected method name from `deleteFile` to `delete`
-        await ai.files.delete(fileName);
+        // FIX: The delete method expects an object with the 'name' property.
+        await ai.files.delete({ name: fileName });
         console.log(`Arquivo temporário ${fileName} deletado com sucesso.`);
     } catch (e: any) {
         // Log the error but don't re-throw, as this is a non-critical cleanup operation
@@ -104,49 +141,49 @@ const responseSchema = {
 };
 
 
-export const analyzeAudioAndTranscript = async (audio: { mimeType: string, data?: string, uri?: string }, isDeepAnalysis: boolean = false): Promise<FullAnalysis> => {
+export const analyzeAudioAndTranscript = async (media: { mimeType: string, data?: string, uri?: string }, isDeepAnalysis: boolean = false): Promise<FullAnalysis> => {
   if (!navigator.onLine) {
     throw new Error("Você parece estar offline. Verifique sua conexão e tente novamente.");
   }
 
   try {
-    let audioPart;
-    if (audio.uri) {
-        audioPart = {
+    let mediaPart;
+    if (media.uri) {
+        mediaPart = {
             fileData: {
-                mimeType: audio.mimeType,
-                fileUri: audio.uri,
+                mimeType: media.mimeType,
+                fileUri: media.uri,
             },
         };
-    } else if (audio.data) {
-        audioPart = {
+    } else if (media.data) {
+        mediaPart = {
             inlineData: {
-                mimeType: audio.mimeType,
-                data: audio.data,
+                mimeType: media.mimeType,
+                data: media.data,
             },
         };
     } else {
-        throw new Error("Nem dados de áudio nem URI foram fornecidos para análise.");
+        throw new Error("Nem dados de mídia nem URI foram fornecidos para análise.");
     }
 
 
     const textPart = {
-      text: `Sua tarefa é analisar o áudio de uma reunião e gerar um resumo estruturado e uma transcrição completa em formato JSON.
+      text: `Sua tarefa é analisar a gravação (áudio ou vídeo) de uma reunião e gerar um resumo estruturado e uma transcrição completa em formato JSON.
 
 Siga estas instruções rigorosamente:
 1.  **Idioma:** Toda a sua resposta deve ser em português do Brasil.
 2.  **Formato de Saída:** A saída DEVE ser um objeto JSON válido que corresponda ao schema fornecido. Não inclua nenhum texto ou formatação fora do objeto JSON (como '`+"`"+`json').
 3.  **Análise do Conteúdo:**
     *   **Resumo (summary):**
-        *   'key_points': Identifique e liste os pontos mais importantes e as decisões tomadas. Para cada item, inclua o texto do ponto ('point') e o 'timestamp' (HH:MM:SS) exato de quando ele foi mencionado no áudio.
-        *   'action_items': Liste todas as tarefas ou ações definidas. Para cada item, especifique a ação ('action'), quem é o 'responsible' e o 'timestamp' (HH:MM:SS) exato de quando a ação foi definida no áudio.
+        *   'key_points': Identifique e liste os pontos mais importantes e as decisões tomadas. Para cada item, inclua o texto do ponto ('point') e o 'timestamp' (HH:MM:SS) exato de quando ele foi mencionado na gravação.
+        *   'action_items': Liste todas as tarefas ou ações definidas. Para cada item, especifique a ação ('action'), quem é o 'responsible' e o 'timestamp' (HH:MM:SS) exato de quando a ação foi definida na gravação.
     *   **Transcrição (transcript):**
         *   Transcreva a conversa na íntegra.
         *   Identifique cada locutor de forma consistente (ex: "Locutor A", "Locutor B").
         *   Forneça um 'timestamp' (HH:MM:SS) para o início de cada fala.
         *   **CRÍTICO:** Se um locutor se repetir ou gaguejar, transcreva o que foi dito de forma natural, mas evite gerar laços de repetição infinitos ou excessivamente longos. A transcrição deve ser um reflexo fiel, mas legível, da conversa.
 
-Analise o áudio fornecido e gere o JSON.`,
+Analise a gravação fornecida e gere o JSON.`,
     };
 
     const modelName = isDeepAnalysis ? "gemini-2.5-pro" : "gemini-2.5-flash";
@@ -163,7 +200,7 @@ Analise o áudio fornecido e gere o JSON.`,
         model: modelName,
         // FIX: The `contents` field for a request should be an array of `Content` objects.
         // Wrapping the parts in an array ensures the correct structure for multimodal requests.
-        contents: [{ parts: [audioPart, textPart] }],
+        contents: [{ parts: [mediaPart, textPart] }],
         config: config
     });
 
@@ -192,11 +229,11 @@ Analise o áudio fornecido e gere o JSON.`,
     }
 
   } catch (error: any) {
-    console.error("Error analyzing audio with Gemini:", error);
+    console.error("Error analyzing media with Gemini:", error);
     if (error.message) {
       throw error;
     }
-    throw new Error("Ocorreu um erro ao analisar o áudio. Por favor, tente novamente.");
+    throw new Error("Ocorreu um erro ao analisar a mídia. Por favor, tente novamente.");
   }
 };
 
